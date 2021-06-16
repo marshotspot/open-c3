@@ -4,6 +4,11 @@ use warnings;
 use JSON;
 use YAML::XS;
 use LWP::UserAgent;
+use Encode qw(decode encode);
+use MIME::Base64;
+use Digest::MD5;
+use Cache;
+
 my %app;
 my ( $ssousername, %env );
 BEGIN{
@@ -46,6 +51,21 @@ return sub
     }
     else
     {
+        my $cookie = $param{cookie};
+        my $db = $param{db};
+        my $type = "sso:$cookie";
+        my $uuid = Digest::MD5->new->add($type)->hexdigest;
+        my $now = time;
+        if ( Cache::get_refresh() + Cache::get_expire() > $now )
+        {
+            my $value = eval{ $db->query( "select value from openc3_connector_cache where uuid = '$uuid'" ); };
+            if ( $value->[0] )
+            {
+                my $decode_value = decode_base64( $value->[0][0] );
+                my $data = eval{ decode_json $decode_value };
+                return wantarray ? @$data : @$data[0] unless $@;
+            }
+        }
         my $ua = LWP::UserAgent->new;
         $ua->default_header( %env ) if %env;
         my $res = $ua->get( "$ssousername$param{cookie}" );
@@ -57,7 +77,32 @@ return sub
                 ? ( $v->{data}{user}, $v->{data}{company}, $v->{data}{admin}, $v->{data}{showconnector} )
                 : ref $v->{data} eq 'HASH' ? () : ( $v->{data}, $v->{data} =~ /(@.+)$/ ? $1 : 'default' );
 
+            my $json = new JSON->canonical(1)->encode( \@return );
+            my $encode_value = encode_base64( encode('UTF-8', $json ) );
+
+            #清理旧的cookie数据
+            my $type_db = eval{ $db->query( "select type from openc3_connector_cache where type like 'sso:\%' and type <> '$type' and value='$encode_value'" );};
+            if ( defined $type_db && ref $type_db eq 'ARRAY' )
+            {
+                if ( $type_db->[0][0] =~ /^sso:/ ){
+                    my $old_cookie = substr($type_db->[0][0],4);
+                    eval{ $db->execute( "delete from openc3_connector_cache where type like '$old_cookie\%' or type='sso:$old_cookie'" ); };
+                }
+            }
+
+            my $update_time = time;
+            my $affected = eval{ $db->execute( "update openc3_connector_cache set value = '$encode_value', update_time = '$update_time' where uuid = '$uuid'" ); };
+            eval{ $db->execute( "replace into openc3_connector_cache ( `uuid`, `type`, `value`, `update_time` ) values( '$uuid', '$type', '$encode_value', '$update_time' )" ); } unless $affected && $affected eq 1;
+
             return wantarray ? @return : $return[0];
+        }
+        Cache::refresh(time);
+        my $old_value = eval{ $db->query( "select value from openc3_connector_cache where uuid = '$uuid'" ); };
+        if ( $old_value->[0] )
+        {
+            my $decode_old_value = decode_base64( $old_value->[0][0] );
+            my $old_data = eval{ decode_json $decode_old_value };
+            return wantarray ? @$old_data : @$old_data[0] unless $@;
         }
         return undef;
     }

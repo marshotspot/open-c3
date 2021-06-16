@@ -52,7 +52,7 @@ sub ssocheck
     return +{ stat => $JSON::false, code => 10000 }
         unless ( $cookie || ( request->headers->{appkey} && request->headers->{appname} ) );
  
-    my $user = eval{ $sso->run( cookie => $cookie, map{ $_ => request->headers->{$_} }qw( appkey appname ) ) };
+    my $user = eval{ $sso->run( cookie => $cookie, db => $mysql, map{ $_ => request->headers->{$_} }qw( appkey appname ) ) };
     return +{ stat => $JSON::false, info => "sso code error:$@" } if $@;
     return +{ stat => $JSON::false, code => 10000 } unless $user;
 
@@ -66,7 +66,7 @@ sub pmscheck
 
     if( $pmslocal && !( request->headers->{appkey} && request->headers->{appname} ) )
     {
-        my $user = eval{ $sso->run( cookie => $cookie ) };
+        my $user = eval{ $sso->run( cookie => $cookie, db => $mysql ) };
         return +{ stat => $JSON::false, info => "sso code error:$@" } if $@;
 
         my ( $err, $s ) = point::point( $mysql, $point, $treeid, $user );
@@ -79,7 +79,7 @@ sub pmscheck
     return 0 if $treeid == 4000000000;
     if( $treeid >= 4000000000 )
     {
-        my $user = eval{ $sso->run( cookie => $cookie, map{ $_ => request->headers->{$_} }qw( appkey appname ) ) };
+        my $user = eval{ $sso->run( cookie => $cookie,  db => $mysql, map{ $_ => request->headers->{$_} }qw( appkey appname ) ) };
         return +{ stat => $JSON::false, info => "sso code error:$@" } if $@;
         return +{ stat => $JSON::false, code => 10000 } unless $user;
 
@@ -90,7 +90,7 @@ sub pmscheck
         return $match && @$match > 0 ? 0 : +{ stat => $JSON::false, info =>  'Unauthorized' };
     }
 
-    my $p = eval{ $pms->run( cookie => $cookie, point => $point, treeid => $treeid,
+    my $p = eval{ $pms->run( cookie => $cookie, point => $point, treeid => $treeid, db => $mysql,
         map{ $_ => request->headers->{$_} }qw( appkey appname ) ) };
     return +{ stat => $JSON::false, info => "pms code error:$@" } if $@;
     return +{ stat => $JSON::false, info =>  'Unauthorized' } unless $p;

@@ -59,7 +59,7 @@ get '/default/auth/point' => sub {
 
     my $cookie = $param->{cookie};
     return +{ stat => $JSON::false, info => "nofind cookie" } unless $cookie;
-    my $user = eval{ $api::sso->run( cookie => $cookie ) };
+    my $user = eval{ $api::sso->run( cookie => $cookie, db => $api::mysql ) };
 
     my ( $err, $s ) = point::point( $api::mysql, $param->{point}, $param->{treeid}, $user );
     return +{ stat => $JSON::true, info => $err } if $err;

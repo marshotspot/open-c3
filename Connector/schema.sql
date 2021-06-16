@@ -181,3 +181,13 @@ create table `openc3_connector_private`(
 UNIQUE KEY `uniq_user` (`user`)
 )ENGINE=InnoDB DEFAULT CHARSET=utf8 comment='private';
 
+create table `openc3_connector_cache`(
+`id`            int(16) unsigned not null primary key auto_increment comment 'id',
+`uuid` VARCHAR(100) NOT NULL UNIQUE comment 'uuid',
+`type` VARCHAR(500) NOT NULL comment 'type',
+`value` text comment 'value',
+`update_time` int(16) unsigned comment 'update_time',
+KEY `index_uuid` (`uuid`),
+KEY `index_type` (`type`(32))
+)ENGINE=InnoDB DEFAULT CHARSET=utf8 comment='cache';
+

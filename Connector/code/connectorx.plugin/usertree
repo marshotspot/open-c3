@@ -3,6 +3,8 @@ use strict;
 use warnings;
 use Logs;
 use LWP::UserAgent;
+use Digest::MD5;
+use Cache;
 
 $| ++;
 
@@ -27,13 +29,44 @@ return sub
 
     $logs = Logs->new( 'code.usertree' ) unless $logs;
 
+    my $db = $param{db};
+    my $type = "$cookie:usertree";
+    my $uuid = Digest::MD5->new->add($type)->hexdigest;
+    my $now = time;
+    if ( Cache::get_refresh() + Cache::get_expire() > $now )
+    {
+        my $value = eval{ $db->query( "select value from openc3_connector_cache where uuid = '$uuid'" ); };
+        if ( $value->[0] )
+        {
+            my $decode_value = decode_base64( $value->[0][0] );
+            my $data = eval{ decode_json $decode_value };
+            return $data unless $@;
+        }
+    }
+
     my $ua = LWP::UserAgent->new;
     $ua->default_header( %env ) if %env;
     my $res = $ua->get( "$usertree?cookie=$cookie" );
     if($res->is_success)
     {
         my $v = eval{decode_json $res->decoded_content};
-        return $v->{data} if $v->{stat};
+        if ( $v->{stat} )
+        {
+            my $json = new JSON->canonical(1)->encode( \@{$v->{data}} );
+            my $encode_value = encode_base64( encode('UTF-8', $json ) );
+            my $update_time = time;
+            my $affected = eval{ $db->execute( "update openc3_connector_cache set value = '$encode_value', update_time = '$update_time' where uuid = '$uuid'" ); };
+            eval{ $db->execute( "replace into openc3_connector_cache ( `uuid`, `type`, `value`, `update_time` ) values( '$uuid', '$type', '$encode_value', '$update_time' )" ); } unless $affected && $affected eq 1;
+            return $v->{data};
+        }
+    }
+    Cache::refresh(time);
+    my $old_value = eval{ $db->query( "select value from openc3_connector_cache where uuid = '$uuid'" ); };
+    if ( $old_value->[0] )
+    {
+        my $decode_old_value = decode_base64( $old_value->[0][0] );
+        my $old_data = eval{ decode_json $decode_old_value };
+        return $old_data unless $@;
     }
     die $res->content;
 }

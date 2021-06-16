@@ -3,6 +3,8 @@ use strict;
 use warnings;
 use LWP::UserAgent;
 use JSON;
+use Digest::MD5;
+use Cache;
 
 $| ++;
 
@@ -68,21 +70,39 @@ return sub
             }
         }
 
+        my $db = $param{db};
+        my $type = "$cookie$point$treestr:pms";
+        my $uuid = Digest::MD5->new->add($type)->hexdigest;
+        my $now = time;
+        if ( Cache::get_refresh() + Cache::get_expire() > $now )
+        {
+            my $value = eval{ $db->query( "select value from openc3_connector_cache where uuid = '$uuid'" ); };
+            return $value->[0][0] if $value->[0] ;
+        }
+
         my $ua = LWP::UserAgent->new;
         $ua->default_header( %env ) if %env;
         my $res = $ua->get( "$pmspoint?point=$point$treestr&cookie=$cookie" );
-        unless( $res->is_success )
+        if( $res->is_success )
         {
-             #TODO 确认上层调用是否捕获这个die
-             die "call userauth.point fail";
-        }
-        my $data = eval{JSON::from_json $res->content};
-        unless ( $data->{stat} ) {
-            #TODO 确认上层调用是否捕获这个die
+            my $data = eval{JSON::from_json $res->content};
+            if ( $data->{stat} )
+            {
+                my $cache_value = $data->{data};
+                my $update_time = time;
+                my $affected = eval{ $db->execute( "update openc3_connector_cache set value = '$cache_value', update_time = '$update_time' where uuid = '$uuid'" ); };
+                eval{ $db->execute( "replace into openc3_connector_cache ( `uuid`, `type`, `value`, `update_time` ) values( '$uuid', '$type', '$cache_value', '$update_time' )" ); } unless $affected && $affected eq 1;
+                return $data->{data};
+            }
+            Cache::refresh(time);
+            my $old_value = eval{ $db->query( "select value from openc3_connector_cache where uuid = '$uuid'" ); };
+            return $old_value->[0][0] if $old_value->[0] ;
             die "call userauth.point result". $data->{info} || '';
         }
- 
-        return $data->{data};
+        Cache::refresh(time);
+        my $old_value = eval{ $db->query( "select value from openc3_connector_cache where uuid = '$uuid'" ); };
+        return $old_value->[0][0] if $old_value->[0] ;
+        die "call userauth.point fail";
     }
 }
 

@@ -37,7 +37,7 @@ get '/connectorx/nodeinfo/:projectid' => sub {
 get '/connectorx/usertree' => sub {
     my ( $ssocheck, $ssouser ) = api::ssocheck(); return $ssocheck if $ssocheck;
 
-    my $tree = eval{ $usertree->run( cookie => cookie( $api::cookiekey ) ) };
+    my $tree = eval{ $usertree->run( cookie => cookie( $api::cookiekey ), db => $api::mysql ) };
 
     $ssouser =~ s/\./_/g;
     my $private = eval{ $api::mysql->query( "select id,user from `openc3_connector_private` where user='$ssouser'", [ qw( id name ) ] ) };
@@ -66,7 +66,7 @@ sub tree2map
 get '/connectorx/usertree/treemap' => sub {
     my ( $ssocheck, $ssouser ) = api::ssocheck(); return $ssocheck if $ssocheck;
 
-    my $tree = eval{ $usertree->run( cookie => request->params->{cookie} || cookie( $api::cookiekey ) ) };
+    my $tree = eval{ $usertree->run( cookie => request->params->{cookie} || cookie( $api::cookiekey ), db => $api::mysql ) };
     my %map = tree2map( $tree );
     return $@ ? +{ stat => $JSON::false, info => $@ } :  +{ stat => $JSON::true, data => \%map };
 };
@@ -74,11 +74,11 @@ get '/connectorx/usertree/treemap' => sub {
 
 #获取全量服务树map
 get '/connectorx/treemap' => sub {
-    my ( $user )= eval{ $api::sso->run( cookie => cookie( $api::cookiekey ), map{ $_ => request->headers->{$_} }qw( appkey appname ) ) };
+    my ( $user )= eval{ $api::sso->run( cookie => cookie( $api::cookiekey ), db => $api::mysql, map{ $_ => request->headers->{$_} }qw( appkey appname ) ) };
     return( +{ stat => $JSON::false, info => "sso code error:$@" } ) if $@;
     return( +{ stat => $JSON::false, code => 10000 } ) unless $user;
 
-    my $tree = eval{ $treemap->run( cookie => cookie( $api::cookiekey ) ) };
+    my $tree = eval{ $treemap->run( cookie => cookie( $api::cookiekey ), db => $api::mysql ) };
     return $@ ? +{ stat => $JSON::false, info => $@ } :  +{ stat => $JSON::true, data => $tree };
 };
 
@@ -100,7 +100,7 @@ get '/connectorx/point' => sub {
 get '/connectorx/username' => sub {
     #cookie appname appkey
     my $param = params();
-    my ( $user, $company ) = eval{ $api::sso->run( %$param ) };
+    my ( $user, $company ) = eval{ $api::sso->run( %$param, db => $api::mysql ) };
 
     return( +{ stat => $JSON::false, info => "sso code error:$@" } ) if $@;
     return( +{ stat => $JSON::true, data => +{ user  => $user, company => $company } } );
@@ -113,7 +113,7 @@ get '/connectorx/cookiekey' => sub {
 
 #获取用户信息，前端使用
 get '/connectorx/sso/userinfo' => sub {
-    my ( $user, $company, $admin, $showconnector )= eval{ $api::sso->run( cookie => cookie( $api::cookiekey ), map{ $_ => request->headers->{$_} }qw( appkey appname ) ) };
+    my ( $user, $company, $admin, $showconnector )= eval{ $api::sso->run( cookie => cookie( $api::cookiekey ), db => $api::mysql, map{ $_ => request->headers->{$_} }qw( appkey appname ) ) };
     return( +{ stat => $JSON::false, info => "sso code error:$@" } ) if $@;
     return( +{ stat => $JSON::false, code => 10000 } ) unless $user;
     my $name = $user;

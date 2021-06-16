@@ -4,6 +4,8 @@ use warnings;
 use Logs;
 use YAML::XS;
 use LWP::UserAgent;
+use Digest::MD5;
+use Cache;
 
 $| ++;
 
@@ -79,12 +81,31 @@ return sub
         }
     }
 
+    my $type = "$cookie$point$treestr:point";
+    my $uuid = Digest::MD5->new->add($type)->hexdigest;
+    my $now = time;
+    if ( Cache::get_refresh() + Cache::get_expire() > $now )
+    {
+        my $value = eval{ $db->query( "select value from openc3_connector_cache where uuid = '$uuid'" ); };
+        return $value->[0][0] if $value->[0] ;
+    }
+
     my $res = $ua->get( "$pmspoint?point=$point$treestr&cookie=$cookie" );
     if($res->is_success)
     {
         my $v = eval{decode_json $res->decoded_content};
-        return $v->{data} if $v->{stat};
+        if ( $v->{stat} )
+        {
+            my $cache_value = $v->{data};
+            my $update_time = time;
+            my $affected = eval{ $db->execute( "update openc3_connector_cache set value = '$cache_value', update_time = '$update_time' where uuid = '$uuid'" ); };
+            eval{ $db->execute( "replace into openc3_connector_cache ( `uuid`, `type`, `value`, `update_time` ) values( '$uuid', '$type', '$cache_value', '$update_time' )" ); } unless $affected && $affected eq 1;
+            return $v->{data};
+        }
     }
+    Cache::refresh(time);
+    my $old_value = eval{ $db->query( "select value from openc3_connector_cache where uuid = '$uuid'" ); };
+    return $old_value->[0][0] if $old_value->[0] ;
     die $res->content;
 };
 1
